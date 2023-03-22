@@ -829,6 +829,29 @@ void sigint_handler(int signo) {
 }
 #endif
 
+
+std::string escapeString(std::string stdstr) {
+    const char* str = stdstr.c_str();
+    std::string escapedStr;
+    for (const char* c = str; *c != '\0'; ++c) {
+        switch (*c) {
+            case '\a': escapedStr += "\\a"; break;
+            case '\b': escapedStr += "\\b"; break;
+            case '\f': escapedStr += "\\f"; break;
+            case '\n': escapedStr += "\\n"; break;
+            case '\r': escapedStr += "\\r"; break;
+            case '\t': escapedStr += "\\t"; break;
+            case '\v': escapedStr += "\\v"; break;
+            case '\\': escapedStr += "\\\\"; break;
+            case '\"': escapedStr += "\\\""; break;
+            case '\'': escapedStr += "\\\'"; break;
+            default: escapedStr += *c; break;
+        }
+    }
+    //std::cout << "test string" << escapedStr << std::endl;
+    return escapedStr;
+}
+
 int llama_main(
     gpt_params params,
     llama_vocab vocab,
@@ -842,8 +865,12 @@ int llama_main(
     if (params.seed < 0) {
         params.seed = time(NULL);
     }
-
-    fprintf(errstream, "%s: seed = %d\n", __func__, params.seed);
+    if(params.protocol_mode) {
+        fprintf(outstream, "%s", "HELO\n");
+        fprintf(outstream, "KV seed=%d\n", params.seed);
+    } else {
+        fprintf(errstream, "%s: seed = %d\n", __func__, params.seed);
+    }
 
     std::mt19937 rng(params.seed);
     if (params.random_prompt) {
@@ -891,13 +918,24 @@ int llama_main(
         params.interactive = true;
     }
 
-    fprintf(errstream, "\n");
-    fprintf(errstream, "%s: prompt: '%s'\n", __func__, params.prompt.c_str());
-    fprintf(errstream, "%s: number of tokens in prompt = %zu\n", __func__, embd_inp.size());
-    for (int i = 0; i < (int) embd_inp.size(); i++) {
-        fprintf(errstream, "%6d -> '%s'\n", embd_inp[i], vocab.id_to_token.at(embd_inp[i]).c_str());
+    if(params.protocol_mode) {
+        fprintf(outstream, "PROMPT %s\n", escapeString(params.prompt).c_str());
+        fprintf(outstream, "KV prompt_tokens=%zu\n",embd_inp.size());
+    } else {
+        fprintf(errstream, "\n");
+        fprintf(errstream, "%s: prompt: '%s'\n", __func__, params.prompt.c_str());
+        fprintf(errstream, "%s: number of tokens in prompt = %zu\n", __func__, embd_inp.size());
     }
-    fprintf(errstream, "\n");
+    for (int i = 0; i < (int) embd_inp.size(); i++) {
+        if(params.protocol_mode) {
+            fprintf(outstream, "DEBUG %d -> '%s'\n", embd_inp[i], escapeString(vocab.id_to_token.at(embd_inp[i])).c_str());
+        } else {
+            fprintf(errstream, "%6d -> '%s'\n", embd_inp[i], vocab.id_to_token.at(embd_inp[i]).c_str());
+        }
+    }
+    if(!params.protocol_mode) {
+        fprintf(errstream, "\n");
+    }
     if (params.interactive) {
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__))
         struct sigaction sigint_action;
@@ -909,16 +947,32 @@ int llama_main(
         signal(SIGINT, sigint_handler);
 #endif
 
-        fprintf(errstream, "%s: interactive mode on.\n", __func__);
+        if(params.protocol_mode) {
+            fprintf(outstream, "KV interactive_mode=true\n");
+        } else {
+            fprintf(errstream, "%s: interactive mode on.\n", __func__);
+        }
 
         if(params.antiprompt.size()) {
             for (auto antiprompt : params.antiprompt) {
-                fprintf(errstream, "Reverse prompt: '%s'\n", antiprompt.c_str());
+                if(params.protocol_mode) {
+                    fprintf(outstream, "KV reverse_prompt=\"%s\"\n", escapeString(antiprompt).c_str());
+                } else {
+                    fprintf(errstream, "Reverse prompt: '%s'\n", antiprompt.c_str());
+                }
             }
         }
     }
-    fprintf(errstream, "sampling parameters: temp = %f, top_k = %d, top_p = %f, repeat_last_n = %i, repeat_penalty = %f\n", params.temp, params.top_k, params.top_p, params.repeat_last_n, params.repeat_penalty);
-    fprintf(errstream, "\n\n");
+    if(params.protocol_mode) {
+            fprintf(errstream, "KV temp=%f\n", params.temp);
+            fprintf(errstream, "KV top_k=%d\n", params.top_k);
+            fprintf(errstream, "KV top_p=%f\n", params.top_p);
+            fprintf(errstream, "KV repeat_last_n=%i\n", params.repeat_last_n);
+            fprintf(errstream, "KV repeat_penalty=%f\n", params.repeat_penalty);
+    } else {
+            fprintf(errstream, "sampling parameters: temp = %f, top_k = %d, top_p = %f, repeat_last_n = %i, repeat_penalty = %f\n", params.temp, params.top_k, params.top_p, params.repeat_last_n, params.repeat_penalty);
+            fprintf(errstream, "\n\n");
+    }
 
     std::vector<llama_vocab::id> embd;
 
@@ -927,12 +981,14 @@ int llama_main(
     std::fill(last_n_tokens.begin(), last_n_tokens.end(), 0);
 
     if (params.interactive) {
-        fprintf(errstream, "== Running in interactive mode. ==\n"
+        if(!params.protocol_mode) {
+            fprintf(errstream, "== Running in interactive mode. ==\n"
 #if defined (__unix__) || (defined (__APPLE__) && defined (__MACH__)) || defined (_WIN32)
-               " - Press Ctrl+C to interject at any time.\n"
+                       " - Press Ctrl+C to interject at any time.\n"
 #endif
-               " - Press Return to return control to LLaMa.\n"
-               " - If you want to submit another line, end your input in '\\'.\n\n");
+                       " - Press Return to return control to LLaMa.\n"
+                       " - If you want to submit another line, end your input in '\\'.\n\n");
+        }
         is_interacting = true;
     }
 
@@ -955,12 +1011,19 @@ int llama_main(
     }
 
     while (remaining_tokens > 0 || params.interactive) {
+        if(params.protocol_mode && !params.interactive) {
+            fprintf(outstream, "KV remaining_tokens=%d\n", remaining_tokens);
+        }
         // predict
         if (embd.size() > 0) {
             const int64_t t_start_us = ggml_time_us();
 
             if (!llama_eval(model, params.n_threads, n_past, embd, logits, mem_per_token)) {
-                fprintf(errstream, "Failed to predict\n");
+                if(params.protocol_mode) {
+                    fprintf(outstream, "FATAL Error: Failed to predict\n");
+                } else {
+                    fprintf(errstream, "Failed to predict\n");
+                }
                 return 1;
             }
 
@@ -1020,8 +1083,16 @@ int llama_main(
 
         // display text
         if (!input_noecho) {
+            if(params.protocol_mode) {
+                fprintf(outstream, "OUTPUT ");
+            }
             for (auto id : embd) {
-                fprintf(outstream, "%s", vocab.id_to_token[id].c_str());
+                fprintf(outstream, "%s", params.protocol_mode ?
+                        escapeString(vocab.id_to_token[id]).c_str() :
+                        vocab.id_to_token[id].c_str());
+            }
+            if(params.protocol_mode) {
+                fprintf(outstream, "\n");
             }
             fflush(outstream);
         }
@@ -1047,11 +1118,17 @@ int llama_main(
                 }
             }
             if (is_interacting) {
+                if(params.protocol_mode) {
+                    fprintf(outstream, "KV awaiting_prompt=true\n");
+                    fflush(outstream);
+                }
                 if (params.instruct) {
                     input_consumed = embd_inp.size();
                     embd_inp.insert(embd_inp.end(), inp_pfx.begin(), inp_pfx.end());
 
-                    fprintf(outstream, "\n> ");
+                    if(!params.protocol_mode) {
+                        fprintf(outstream, "\n> ");
+                    }
                 }
 
                 // currently being interactive
@@ -1068,6 +1145,7 @@ int llama_main(
                     }
                     buffer += line + '\n'; // Append the line to the result
                 } while (another_line);
+                fprintf(outstream, "PROMPT %s\n", escapeString(line).c_str());
                 if (params.use_color) fprintf(outstream, ANSI_COLOR_RESET);
 
                 std::vector<llama_vocab::id> line_inp = ::llama_tokenize(vocab, buffer, false);
@@ -1080,6 +1158,10 @@ int llama_main(
                 remaining_tokens -= line_inp.size();
 
                 input_noecho = true; // do not echo this again
+                if(params.protocol_mode) {
+                    fprintf(outstream, "KV awaiting_prompt=false\n");
+                    fflush(outstream);
+                }
             }
             is_interacting = false;
         }
@@ -1089,7 +1171,13 @@ int llama_main(
             if (params.interactive) {
                 is_interacting = true;
             } else {
-                fprintf(errstream, " [end of text]\n");
+                if(params.protocol_mode) {
+                    fprintf(outstream, "END_OF_TEXT\n");
+                    fflush(outstream);
+                } else {
+                    fprintf(errstream, " [end of text]\n");
+                    fflush(errstream);
+                }
                 break;
             }
         }

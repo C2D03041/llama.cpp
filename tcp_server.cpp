@@ -122,7 +122,7 @@ static int serve_model(
 
     // start by reading the parameter count
     if (fscanf(instream, "%d\n", &argc) != 1) {
-        fprintf(outstream, "Error: First line must be character count\n");
+        fprintf(outstream, "FATAL Error: First line must be character count\n");
         fflush(outstream);
         return 1;
     }
@@ -131,12 +131,12 @@ static int serve_model(
     argv = (char **)malloc(argc * sizeof *argv);
     argv[0] = nullptr;
     if (read_arguments(argc, argv, instream) != argc) {
-        fprintf(outstream, "Error: Failed to read arguments\n");
+        fprintf(outstream, "FATAL Error: Failed to read arguments\n");
         fflush(outstream);
     }
 
     if (gpt_params_parse(argc, argv, params) == false) {
-        fprintf(outstream, "Error: Failed to parse parameters\n");
+        fprintf(outstream, "FATAL Error: Failed to parse parameters\n");
         fflush(outstream);
         return 1;
     }
@@ -147,6 +147,9 @@ static int serve_model(
     free(argv);
 
     PosixStream tcp_is(sock_fd);
+
+    params.protocol_mode = true;
+    params.use_color = false;
 
     return llama_main(params, vocab, model, t_load_us, t_main_start_us, tcp_is, outstream, outstream);
 }
