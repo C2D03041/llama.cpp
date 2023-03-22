@@ -81,6 +81,8 @@ bool gpt_params_parse(int argc, char ** argv, gpt_params & params) {
 #ifndef _WIN32
         } else if (arg == "-l" || arg == "--listen") {
             params.listen_port = argv[++i];
+        } else if (arg == "--host") {
+            params.listen_host = argv[++i];
 #endif
         } else if (arg == "-h" || arg == "--help") {
             gpt_print_usage(argc, argv, params);
@@ -132,6 +134,8 @@ void gpt_print_usage(int /*argc*/, char ** argv, const gpt_params & params) {
 #ifndef _WIN32
     fprintf(stderr, "  -l PORT, --listen PORT\n");
     fprintf(stderr, "                        Run in TCP mode, listening on PORT\n");
+    fprintf(stderr, "  --host ADDR\n");
+    fprintf(stderr, "                        When using `--listen`, this specifies the bind addr\n");
 #endif
     fprintf(stderr, "\n");
 }

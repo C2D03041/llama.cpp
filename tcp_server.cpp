@@ -169,9 +169,7 @@ int listen_tcp(
     hints.ai_socktype = SOCK_STREAM;
     hints.ai_flags = AI_PASSIVE;
 
-    // This should only ever listen on a loopback address. Access from outside
-    // should be proxied via nginx or similar software
-    status = getaddrinfo("127.0.0.1", params.listen_port.c_str(), &hints, &servinfo);
+    status = getaddrinfo(params.listen_host.c_str(), params.listen_port.c_str(), &hints, &servinfo);
     if (status) {
         die("getaddrinfo error: %s", gai_strerror(status));
     }

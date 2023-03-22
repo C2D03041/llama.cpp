@@ -41,9 +41,11 @@ struct gpt_params {
     bool instruct          = false; // instruction mode (used for Alpaca models)
     bool ignore_eos        = false; // do not stop generating after eos
     bool perplexity        = false; // compute perplexity over the prompt
+    bool protocol_mode     = false; // use an IRC-like protocol with message prefixes and one message per line
 
 #ifndef _WIN32
     std::string listen_port = "";  // TCP port for when running in server mode
+    std::string listen_host = "";  // TCP bind addr when running in server mode
 #endif
 };
 
